@@ -1,6 +1,6 @@
 import { GetServerSideProps } from 'next';
 import { DatePicker, Input, Table } from 'antd';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/router';
 import type { Dayjs } from 'dayjs';
@@ -19,6 +19,7 @@ interface ITxRow {
   symbol: string;
   address: string;
   amount: number;
+  count: string;
 }
 
 interface IAccountDetailResponse {
@@ -47,6 +48,7 @@ interface IAccCurrency {
 
 export default function Home({ inputTxs, outputTxs }: IAccountProps) {
   const router = useRouter();
+  const { address, startDate, endDate } = router.query;
   const dateFormat = 'YYYY-MM-DD';
 
   const [inputAddress, SetInputAddress] = useState('0xa61efc2d53ae7035');
@@ -68,7 +70,18 @@ export default function Home({ inputTxs, outputTxs }: IAccountProps) {
       dataIndex: 'amount',
       key: 'amount',
     },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+    }
   ];
+
+  useEffect(() => {
+    if (startDate && endDate) {
+      setDates([dayjs(startDate as string, dateFormat), dayjs(endDate as string, dateFormat)]);
+    }
+  }, [startDate, endDate]);
 
   const onSearch = (addr: string) => {
     const startDate = dayjs(dates?.[0]).format(dateFormat);
@@ -79,15 +92,35 @@ export default function Home({ inputTxs, outputTxs }: IAccountProps) {
 
   return (
     <div className='home-container'>
-      <Search placeholder="input address" defaultValue={inputAddress} onSearch={onSearch} />
-      <RangePicker format={dateFormat} 
+      <Search placeholder="input address" defaultValue={address ? address : inputAddress} onSearch={onSearch} />
+      <RangePicker format={dateFormat}
+        defaultValue={dates !== null ? [dayjs(dates?.[0], dateFormat), dayjs(dates?.[1], dateFormat)] :
+          startDate ? [dayjs(startDate as string, dateFormat), dayjs(endDate as string, dateFormat)] : null}
         onCalendarChange={(val) => setDates(val)} />
-      <br/>
-      <span>Currencies Send:</span><br/>
-      <Table dataSource={inputTxs} columns={columns} />
-      <br/>
-      <span>Currencies received:</span><br/>
-      <Table dataSource={outputTxs} columns={columns} />
+      <br />
+      <span>Currencies Send:</span><br />
+      <Table dataSource={inputTxs} columns={columns}
+        onRow={(record, rowIndex) => {
+          return {
+            onClick: (event) => {
+              const sDate = dayjs(dates?.[0]).format(dateFormat);
+              const eDate = dayjs(dates?.[1]).format(dateFormat);
+              router.push(`/transaction?address=${inputAddress}&startDate=${sDate}&endDate=${eDate}&symbol=${record.symbol}&directionType=inputs`);
+            }
+          };
+        }} />
+      <br />
+      <span>Currencies received:</span><br />
+      <Table dataSource={outputTxs} columns={columns}
+        onRow={(record, rowIndex) => {
+          return {
+            onClick: (event) => {
+              const sDate = dayjs(dates?.[0]).format(dateFormat);
+              const eDate = dayjs(dates?.[1]).format(dateFormat);
+              router.push(`/transaction?address=${inputAddress}&startDate=${sDate}&endDate=${eDate}&symbol=${record.symbol}&directionType=outputs`);
+            }
+          };
+        }} />
     </div>
   );
 }
@@ -122,11 +155,12 @@ export const getServerSideProps: GetServerSideProps = async ({ query: { address,
         key: index.toString(),
         symbol: record.currency.symbol,
         address: record.currency.address,
-        amount: record.amount
+        amount: record.amount,
+        count: record.count
       };
       inputTxs.push(tx);
     });
-    
+
     // outputs
     const outputRes = await axios.post('https://graphql.bitquery.io/', {
       "variables": {
@@ -152,7 +186,8 @@ export const getServerSideProps: GetServerSideProps = async ({ query: { address,
         key: index.toString(),
         symbol: record.currency.symbol,
         address: record.currency.address,
-        amount: record.amount
+        amount: record.amount,
+        count: record.count
       };
       outputTxs.push(tx);
     });
