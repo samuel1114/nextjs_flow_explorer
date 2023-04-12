@@ -1,1 +1,1 @@
-# nextjs_basic
+# nextjs_flow_explorer
