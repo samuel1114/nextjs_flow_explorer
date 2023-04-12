@@ -10,7 +10,8 @@ const { RangePicker } = DatePicker;
 type RangeValue = [Dayjs | null, Dayjs | null] | null;
 
 interface IAccountProps {
-  txs: Array<ITxRow>;
+  inputTxs: Array<ITxRow>;
+  outputTxs: Array<ITxRow>;
 }
 
 interface ITxRow {
@@ -30,6 +31,7 @@ interface IAccData {
 
 interface IAccFlow {
   inputs: Array<IAccTx>;
+  outputs: Array<IAccTx>;
 }
 
 interface IAccTx {
@@ -43,13 +45,12 @@ interface IAccCurrency {
   symbol: string;
 }
 
-export default function Home({ txs }: IAccountProps) {
+export default function Home({ inputTxs, outputTxs }: IAccountProps) {
   const router = useRouter();
   const dateFormat = 'YYYY-MM-DD';
 
-  const [inputAddress, SetInputAddress] = useState('');
+  const [inputAddress, SetInputAddress] = useState('0xa61efc2d53ae7035');
   const [dates, setDates] = useState<RangeValue>(null);
-  const [value, setValue] = useState<RangeValue>(null);
 
   const columns = [
     {
@@ -78,20 +79,25 @@ export default function Home({ txs }: IAccountProps) {
 
   return (
     <div className='home-container'>
-      <Search placeholder="input search text" onSearch={onSearch} />
+      <Search placeholder="input address" defaultValue={inputAddress} onSearch={onSearch} />
       <RangePicker format={dateFormat} 
-        onCalendarChange={(val) => setDates(val)}
-        onChange={(val) => setValue(val)}/>
+        onCalendarChange={(val) => setDates(val)} />
       <br/>
       <span>Currencies Send:</span><br/>
-      <Table dataSource={txs} columns={columns} />
+      <Table dataSource={inputTxs} columns={columns} />
+      <br/>
+      <span>Currencies received:</span><br/>
+      <Table dataSource={outputTxs} columns={columns} />
     </div>
   );
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ query: { address, startDate, endDate } }) => {
-  let txs = new Array<ITxRow>();
+  let inputTxs = new Array<ITxRow>();
+  let outputTxs = new Array<ITxRow>();
+
   if (address) {
+    // inputs
     const res = await axios.post('https://graphql.bitquery.io/', {
       "variables": {
         "limit": 10,
@@ -118,17 +124,44 @@ export const getServerSideProps: GetServerSideProps = async ({ query: { address,
         address: record.currency.address,
         amount: record.amount
       };
-      txs.push(tx);
+      inputTxs.push(tx);
     });
     
-    const wrapper: IAccountProps = {
-      txs: txs
-    };
+    // outputs
+    const outputRes = await axios.post('https://graphql.bitquery.io/', {
+      "variables": {
+        "limit": 10,
+        "offset": 0,
+        "address": address,
+        "network": "flow",
+        "from": startDate + "T00:00:00",
+        "till": endDate + "T23:59:59",
+        "dateFormat": "%Y-%m-%d"
+      },
+      "query": "query ($network: FlowNetwork!, $limit: Int!, $offset: Int!, $from: ISO8601DateTime, $till: ISO8601DateTime, $address: String!) {\n  flow(network: $network) {\n    outputs(options: {limit: $limit, offset: $offset, desc: \"count\"}, date: {since: $from, till: $till}, address: {is: $address}) {\n      amount(calculate: sum, address: {is: $address})\n      count: countBigInt(address: {is: $address})\n      currency {\n        address\n        symbol\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n"
+    }, {
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'X-API-KEY': 'BQYR8h7uD7S8klT2q6BZoa9m1duLyA95'
+      }
+    });
+
+    const outputPost: IAccountDetailResponse = await outputRes.data;
+    outputPost.data.flow.outputs.map((record: IAccTx, index: number) => {
+      const tx: ITxRow = {
+        key: index.toString(),
+        symbol: record.currency.symbol,
+        address: record.currency.address,
+        amount: record.amount
+      };
+      outputTxs.push(tx);
+    });
   }
 
   return {
     props: {
-      txs,
+      inputTxs,
+      outputTxs
     },
   };
 
